@@ -1,0 +1,432 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <title>Evaporasi Monitor — Dashboard</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+
+  <!-- Leaflet -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+  <style>
+
+    .card canvas {
+  width: 100% !important;
+  height: 100% !important;
+  display: block;
+}
+
+    .wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.header-fixed {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 0;
+  top: 0;
+  background: var(--bg, #fff);
+  z-index: 20;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.card .chart-wrap {
+  width: 100%;
+  overflow: hidden; /* biar ga keluar border */
+}
+
+    :root{
+      --bg:#f3fbff;
+      --card:#ffffff;
+      --primary:#05a3e0;
+      --muted:#8b9aa6;
+      --accent:#edf8ff;
+      --rounded:14px;
+      --shadow: 0 10px 30px rgba(12,38,63,0.06);
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);font-family:Inter, "Segoe UI", Roboto, Arial, sans-serif;color:#0b2736}
+    .container{max-width:1200px;margin:20px auto;padding:18px;display:grid;grid-template-columns:1fr 420px;gap:18px}
+    .header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+    .logo{width:56px;height:56px;border-radius:12px;display:flex;align-items:center;justify-content:center;
+        background:linear-gradient(135deg,#0ea5e9,#0b69a3);box-shadow:0 8px 26px rgba(11,105,163,0.14)}
+    .logo svg{width:34px;height:34px;fill:white}
+    .title{font-size:25px;font-weight:700}
+    .subtitle{color:var(--muted);font-size:15px;margin-top:2px}
+
+    /* left column cards */
+    .left { display:flex; flex-direction:column; gap:12px; }
+    .card{background:var(--card);border-radius:var(--rounded);padding:16px;box-shadow:var(--shadow);}
+    .row{display:flex;gap:12px;align-items:center}
+    .big-num{font-size:30px;font-weight:700;color:var(--primary)}
+    .muted{color:var(--muted)}
+    .btn{background:var(--primary);color:white;padding:8px 14px;border-radius:10px;border:none;cursor:pointer;box-shadow:0 6px 18px rgba(5,163,224,0.18)}
+    .btn.secondary{background:#f0f6f8;color:#0b2736}
+    .input{padding:8px 10px;border-radius:8px;border:1px solid #e6eef3;width:100%}
+
+    /* map card */
+    .map-card{height:334.px;padding:12px;display:flex;flex-direction:column;gap:12px}
+    #map{flex:1;border-radius:12px;overflow:hidden;box-shadow:var(--shadow)}
+
+    /* bottom charts */
+    .chart-wrap{height:200px}
+
+    /* popup custom styling handled inline in JS for easier exact layout */
+    .small{font-size:13px;color:var(--muted)}
+
+    /* responsive */
+    @media (max-width: 980px){
+      .container{grid-template-columns:1fr; padding:12px}
+      .map-card{height:320px}
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+
+    <!-- ================= HEADER ================= -->
+    <header class="header" style="align-items:flex-start;">
+      <div class="logo" title="Evaporasi Monitor">
+          <svg viewBox="0 0 24 24">
+            <path d="M12 2.5c0 0 5 5.5 5 9.5 0 3.313-2.687 6-6 6s-6-2.687-6-6c0-4 4.999-9.5 7-9.5z"/>
+            <path d="M2 20c2-1.5 4.5-2 7-1.5 2.5.5 4.5 2 7 2.5" opacity="0.18"/>
+          </svg>
+      </div>
+      <div style="flex:1">
+        <div class="title">Evaporasi Monitor</div>
+        <div class="subtitle" id="clock">—</div>
+      </div>
+      <div style="text-align:right">
+        <div class="bold">Backend API</div>
+        <div id="backendLabel" style="font-weight:500;color:var(--primary);">http://localhost:4000</div>
+      </div>
+    </header>
+
+    <!-- ================= ROW 1: REALTIME + MAP ================= -->
+    <div class="row-flex" style="display:flex; gap:16px; margin-top:16px;">
+
+      <!-- REALTIME LEFT -->
+      <div class="card" style="flex:1;">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <div>
+            <div class="muted">Realtime Height (sensor)</div>
+            <div class="row" style="margin-top:8px;">
+              <div class="big-num" id="liveDistance">— cm</div>
+            </div>
+            <div class="muted small" id="liveMeta">Last: —</div>
+          </div>
+
+          <div style="display:flex;flex-direction:column;gap:8px;">
+            <input id="backendInput" class="input" placeholder="Set Backend Base URL (e.g. http://localhost:4000)" style="width:260px" />
+            <div style="display:flex;gap:8px;margin-top:6px">
+              <button class="btn" id="saveBackend">Save</button>
+              <button class="btn secondary" id="refreshBtn">Refresh</button>
+            </div>
+          </div>
+        </div>
+
+        <div style="margin-top:14px;display:flex;gap:12px;align-items:center">
+          <button class="btn" id="computeBtn">Compute Latest Evap</button>
+          <div class="muted">Evap (last): <span id="evapLast">—</span></div>
+        </div>
+
+        <div style="margin-top:12px">
+          <div style="display:flex;gap:12px">
+            <div style="flex:1">
+              <div class="muted">Start height</div>
+              <div id="startHeight">—</div>
+            </div>
+            <div style="flex:1">
+              <div class="muted">End height</div>
+              <div id="endHeight">—</div>
+            </div>
+            <div style="flex:1">
+              <div class="muted">Rain (10m)</div>
+              <div id="rain10">—</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- MAP RIGHT -->
+      <div class="card" style="flex:1;">
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <strong>Map (locations)</strong>
+          <div class="muted small">Click markers</div>
+        </div>
+
+        <div id="map" style="width:100%; height:300px; margin-top:10px;"></div>
+      </div>
+
+    </div>
+
+    <!-- ================= ROW 2: EVAP HISTORY + DAILY EVAP ================= -->
+    <div class="row-flex" style="display:flex; gap:16px; margin-top:16px;">
+
+      <!-- EVAP HISTORY -->
+      <div class="card" style="flex:1;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <div>
+            <strong>Evap History</strong>
+            <div class="muted small">Recent results</div>
+          </div>
+          <div class="muted small">Last 20</div>
+        </div>
+        <div class="chart-wrap" style="height:260px; margin-top:12px;">
+          <canvas id="evapChart"></canvas>
+        </div>
+      </div>
+
+      <!-- DAILY EVAP -->
+      <div class="card" style="flex:1;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <strong>Daily Evap</strong>
+          <div class="muted small">Per Hari</div>
+        </div>
+        <div class="chart-wrap" style="height:260px; margin-top:12px;">
+          <canvas id="dailyChart"></canvas>
+        </div>
+      </div>
+
+    </div>
+
+  </div>
+
+<script>
+/*
+  Frontend dashboard
+  - Change BACKEND default if needed
+  - Endpoints used:
+    GET  {BACKEND}/api/realtime
+    GET  {BACKEND}/api/evap10/recent
+    GET  {BACKEND}/api/daily
+    POST {BACKEND}/api/trigger10
+*/
+
+let BACKEND = localStorage.getItem("EVAP_BACKEND") || "http://localhost:4000";
+document.getElementById("backendLabel").innerText = BACKEND;
+document.getElementById("backendInput").value = BACKEND;
+
+// Save backend base URL
+document.getElementById("saveBackend").addEventListener("click", ()=>{
+  const v = document.getElementById("backendInput").value.trim();
+  if (!v) return alert("Isi backend URL dulu");
+  BACKEND = v;
+  localStorage.setItem("EVAP_BACKEND", BACKEND);
+  document.getElementById("backendLabel").innerText = BACKEND;
+  fetchAllOnce();
+});
+
+// Refresh button
+document.getElementById("refreshBtn").addEventListener("click", ()=> fetchAllOnce());
+document.getElementById("computeBtn").addEventListener("click", async ()=>{
+  try {
+    const res = await fetch(BACKEND + "/api/trigger10", { method: "POST" });
+    const j = await res.json();
+    alert("Compute triggered");
+    // refresh after computing
+    setTimeout(fetchAllOnce, 1500);
+  } catch(e){ alert("Gagal trigger compute: "+e.message); }
+});
+
+// Clock
+function updateClock(){
+  document.getElementById("clock").innerText = new Date().toLocaleString();
+}
+setInterval(updateClock, 1000); updateClock();
+
+/* ---------- MAP ---------- */
+const LAT = -7.205255;
+const LON = 112.735422;
+const map = L.map('map', { center: [LAT,LON], zoom: 14, zoomControl:true });
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+const markerIcon = L.icon({
+  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+  iconSize: [25,41], iconAnchor: [12,41], popupAnchor: [0,-40]
+});
+
+// create marker
+const marker = L.marker([LAT,LON], { icon: markerIcon }).addTo(map);
+
+// popup HTML (mirip screenshot left style). We'll inject realtime height dynamically when popup opens.
+function makePopupHtml(){
+  // unique id for height span so we can update it on popupopen
+  return `
+  
+  <div style="width:280px;border-radius:12px;overflow:hidden;background:white;font-family:Arial">
+    <div style="height:60px;background:#e9eef6;display:flex;align-items:center;justify-content:center;">
+      <span style="font-size:30px;color:#bfcbd6;font-weight:700">Stasiun STG1079</span>
+    </div>
+    <div style="padding:12px;">
+      <div style="font-weight:700">Stasiun BMKG</div>
+      <div style="color:#6b7b86;margin-top:4px">BMKG Maritim Tanjung Perak 2</div>
+      <div style="margin-top:8px;font-size:13px"><strong>Koordinat</strong><br/>Lat: ${LAT}, Lon: ${LON}</div>
+      <div style="margin-top:8px;font-size:13px"><strong>Realtime height</strong><br/><span id="popup-rt-height">— cm</span></div>
+      <div style="display:flex;justify-content:flex-end;margin-top:10px">
+        <button id="popup-close-btn" style="background:#05a3e0;color:white;border:none;padding:8px 12px;border-radius:10px;cursor:pointer">Close</button>
+      </div>
+    </div>
+  </div>
+  `;
+}
+
+
+marker.bindPopup(makePopupHtml(), { maxWidth: 300, closeButton: false });
+
+// When popup opens, attach close handler and update realtime height in popup
+map.on('popupopen', async (e) => {
+  // update popup's realtime height
+  await updatePopupRealtime();
+
+  // close button handler
+  const btn = document.getElementById('popup-close-btn');
+  if (btn) btn.onclick = () => { marker.closePopup(); };
+});
+
+// function to update realtime value inside popup element
+async function updatePopupRealtime(){
+  try {
+    const res = await fetch(BACKEND + "/api/realtime");
+    if (!res.ok) throw new Error("no data");
+    const j = await res.json();
+    const el = document.getElementById('popup-rt-height');
+    if (el){
+      el.innerText = (j.distance !== undefined && j.distance !== null) ? (j.distance + " cm") : "— cm";
+    }
+  } catch (err){
+    // ignore
+  }
+}
+
+/* ---------- REALTIME PANEL ---------- */
+async function loadRealtime(){
+  try {
+    const res = await fetch(BACKEND + "/api/realtime");
+    if (!res.ok) throw new Error("no realtime");
+    const j = await res.json();
+    const dist = (j.distance === undefined || j.distance === null) ? null : j.distance;
+    document.getElementById("liveDistance").innerText = dist !== null ? dist + " cm" : "— cm";
+    const meta = j.updatedAt ? new Date(j.updatedAt*1000).toLocaleString() : "—";
+    document.getElementById("liveMeta").innerText = "Last: " + meta;
+
+    // status
+    let status = "—";
+    if (dist !== null){
+      if (dist <= 60) status = "BAHAYA";
+      else if (dist <= 99) status = "RAWAN";
+      else status = "AMAN";
+    }
+    // optionally update popup if open
+    const popupHeightEl = document.getElementById('popup-rt-height');
+    if (popupHeightEl) popupHeightEl.innerText = dist !== null ? dist + " cm" : "— cm";
+
+    return j;
+  } catch (err){
+    // console.warn(err);
+    return null;
+  }
+}
+// update every 10s
+setInterval(loadRealtime, 10000);
+loadRealtime();
+
+/* ---------- EVAP 10min CHART ---------- */
+const evapCtx = document.getElementById("evapChart").getContext("2d");
+const evapChart = new Chart(evapCtx, {
+  type: 'line',
+  data: { labels: [], datasets: [{ label: 'Evap (cm)', data: [], tension:0.3, pointRadius:3, borderColor:'#05a3e0' }] },
+  options: { scales:{y:{beginAtZero:true}} }
+});
+
+async function loadEvapRecent(){
+  try {
+    const res = await fetch(BACKEND + "/api/evap10/recent");
+    if (!res.ok) throw new Error("no evap");
+    const j = await res.json();
+    // j is object keyed by timestamp
+    const keys = Object.keys(j || {}).sort((a,b)=>a-b);
+    const entries = keys.map(k => j[k]);
+    const labels = entries.map(e => new Date(e.timestamp).toLocaleTimeString());
+    const data = entries.map(e => e.evap_mm ?? e.evap_mm ?? 0);
+    evapChart.data.labels = labels;
+    evapChart.data.datasets[0].data = data;
+    evapChart.update();
+
+    // show last evap
+    const last = entries.length ? entries[entries.length-1].evap_mm : null;
+    document.getElementById("evapLast").innerText = last !== null ? last : "—";
+  } catch (err){
+    // ignore
+  }
+}
+setInterval(loadEvapRecent, 60*1000);
+loadEvapRecent();
+
+/* ---------- DAILY CHART ---------- */
+const dailyCtx = document.getElementById("dailyChart").getContext("2d");
+const dailyChart = new Chart(dailyCtx, {
+  type: 'bar',
+  data: { labels: [], datasets: [{ label: 'Evap Harian (mm)', data: [], backgroundColor:'#ff9f43' }]},
+  options: { scales:{y:{beginAtZero:true}}}
+});
+async function loadDaily(){
+  try {
+    const res = await fetch(BACKEND + "/api/daily");
+    if (!res.ok) throw new Error("no daily");
+    const j = await res.json();
+    const keys = Object.keys(j || {}).sort();
+    const labels = keys;
+    const data = keys.map(k => j[k].evap_mm ?? 0);
+    dailyChart.data.labels = labels;
+    dailyChart.data.datasets[0].data = data;
+    dailyChart.update();
+  } catch(e){}
+}
+setInterval(loadDaily, 5*60*1000);
+loadDaily();
+
+/* ---------- helper to show start/end/rain (for the card) ---------- */
+async function loadSummary(){
+  try {
+    // keep latest evap10 entry to fill start/end/rain fields
+    const res = await fetch(BACKEND + "/api/evap10/recent");
+    if (!res.ok) throw new Error("no");
+    const j = await res.json();
+    const keys = Object.keys(j || {}).sort((a,b)=>a-b);
+    if (!keys.length){
+      document.getElementById("startHeight").innerText = "—";
+      document.getElementById("endHeight").innerText = "—";
+      document.getElementById("rain10").innerText = "—";
+      return;
+    }
+    const last = j[keys[keys.length-1]];
+    document.getElementById("startHeight").innerText = last.h_prev ?? "—";
+    document.getElementById("endHeight").innerText = last.h_now ?? "—";
+    document.getElementById("rain10").innerText = last.rain_10min ?? "—";
+  } catch(e){
+    // ignore
+  }
+}
+setInterval(loadSummary, 30*1000);
+loadSummary();
+
+/* ---------- fetch everything once (for buttons) ---------- */
+async function fetchAllOnce(){
+  document.getElementById("backendLabel").innerText = BACKEND;
+  await Promise.all([loadRealtime(), loadEvapRecent(), loadDaily(), loadSummary()]);
+}
+fetchAllOnce();
+
+</script>
+</body>
+</html>
